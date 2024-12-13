@@ -1,6 +1,6 @@
 # HealthScribeGPT
 HealthScribeGPT is an intelligent health journaling platform powered by OpenAI's GPT. Track your health journey, get AI-powered insights, and maintain a comprehensive health diary with advanced analytics and personalized recommendations.
-Built with Next.js 14 and styled with Tailwind CSS, this application offers a seamless journaling experience with real-time analysis and health tracking capabilities.
+Built with Next.js and styled with Tailwind CSS, this application offers a seamless journaling experience with real-time analysis and health tracking capabilities.
 
 ## Live Demo
 [https://health-scribe-gpt-metaschool.vercel.app/](https://health-scribe-gpt-metaschool.vercel.app/)
@@ -16,7 +16,7 @@ Built with Next.js 14 and styled with Tailwind CSS, this application offers a se
 - Local storage for seamless data persistence
 
 ## Technologies Used
-- Next.js 14 for frontend and backend
+- Next.js for frontend and backend
 - OpenAI API for journal analysis
 - Tailwind CSS for styling
 - Recharts for data visualization
