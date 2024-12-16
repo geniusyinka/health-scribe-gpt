@@ -1,218 +1,177 @@
 // src/app/api/analyze/route.js
 import { NextResponse } from 'next/server';
+import { analyzeJournalEntry } from '@/lib/analyzeJournal';
 
-import { ChatOpenAI } from "@langchain/openai";
+// Rate limiting setup
+const RATE_LIMIT = 10; // requests per minute
+const COOLDOWN = 60 * 1000; // 1 minute in milliseconds
+let requestLog = new Map(); // Store IP -> timestamps
 
-import { PromptTemplate } from "@langchain/core/prompts";
+// Helper function to check rate limit
+function checkRateLimit(ip) {
+  const now = Date.now();
+  const userRequests = requestLog.get(ip) || [];
+  
+  // Clean up old requests
+  const recentRequests = userRequests.filter(
+    timestamp => now - timestamp < COOLDOWN
+  );
+  
+  // Check if under limit
+  if (recentRequests.length >= RATE_LIMIT) {
+    return false;
+  }
+  
+  // Update request log
+  recentRequests.push(now);
+  requestLog.set(ip, recentRequests);
+  return true;
+}
 
-import { StringOutputParser } from "@langchain/core/output_parsers";
+// Helper function to validate entry content
+function validateContent(content) {
+  if (!content || typeof content !== 'string') {
+    return false;
+  }
+  // Ensure content isn't too long or too short
+  if (content.length < 1 || content.length > 10000) {
+    return false;
+  }
+  return true;
+}
 
+// Helper function to sanitize error messages
+function sanitizeError(error) {
+  // Remove any sensitive information from error messages
+  const message = error.message || 'An error occurred';
+  return message.replace(/key-[a-zA-Z0-9-_]+/g, 'KEY-REDACTED')
+                .replace(/sk-[a-zA-Z0-9-_]+/g, 'SK-REDACTED');
+}
 
-
-export async function POST(request) {
-
+// Retry mechanism for analysis
+async function retryAnalysis(content, maxRetries = 2) {
+  let lastError;
+  
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const result = await analyzeJournalEntry(content);
+      return result;
+    } catch (error) {
+      lastError = error;
+      // Wait before retrying (exponential backoff)
+      await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
+    }
+  }
+  
+  throw lastError;
+}
+export async function POST(req) {
   try {
-
-    const { content } = await request.json();
-
-
-
-    if (!process.env.OPENAI_API_KEY) {
-
-      throw new Error('OpenAI API key not found');
-
+    // Get client IP (in production, you'd get this from headers)
+    const clientIp = req.headers.get('x-forwarded-for') || 'unknown';
+    
+    // Check rate limit
+    if (!checkRateLimit(clientIp)) {
+      return NextResponse.json(
+        { 
+          error: 'Rate limit exceeded. Please try again later.',
+          retryAfter: COOLDOWN / 1000
+        },
+        { 
+          status: 429,
+          headers: {
+            'Retry-After': String(COOLDOWN / 1000)
+          }
+        }
+      );
     }
 
+    // Parse request body
+    const body = await req.json();
+    const { content, id } = body;
 
+    // Validate input
+    if (!validateContent(content)) {
+      return NextResponse.json(
+        { 
+          error: 'Invalid content provided',
+          details: 'Content must be a string between 1 and 10000 characters'
+        },
+        { status: 400 }
+      );
+    }
 
-    const model = new ChatOpenAI({
-
-      openAIApiKey: process.env.OPENAI_API_KEY,
-
-      modelName: "gpt-4",
-
-      temperature: 0.7,
-
-    });
-
-
-
-    const systemPrompt = `You are a health analysis expert. Analyze journal entries to extract health metrics and provide insights.
-
-    Always return data in the exact format specified. If a metric isn't mentioned, use contextual clues or return default values.`;
-
-
-
-    const userPrompt = `
-
-    Analyze this journal entry and extract health metrics:
-
-    "${content}"
-
-
-
-    Return a JSON object with EXACTLY this structure:
-
-    {
-
-      "metrics": {
-
-        "sleep": [extract hours as number, default 0],
-
-        "exercise": [extract minutes as number, default 0],
-
-        "mood": ["good", "neutral", or "bad"],
-
-        "energy": ["high", "medium", or "low"],
-
-        "symptoms": [array of symptoms mentioned]
-
-      },
-
-      "insights": [
-
-        "specific insight about sleep pattern",
-
-        "specific insight about exercise habits",
-
-        "specific insight about overall wellbeing"
-
-      ],
-
-      "suggestions": [
-
-        "actionable recommendation based on sleep/exercise",
-
-        "actionable recommendation based on symptoms/mood"
-
-      ]
-
-    }`;
-
-
-
-    const response = await model.invoke([
-
-      { role: "system", content: systemPrompt },
-
-      { role: "user", content: userPrompt }
-
-    ]);
-
-
-
+    // Attempt analysis with retry mechanism
     try {
+      const result = await retryAnalysis(content);
 
-      // Parse and validate the response
-
-      const parsedResponse = JSON.parse(response.content);
-
-      
-
-      // Ensure the response has the required structure
-
-      if (!parsedResponse.metrics || !parsedResponse.insights || !parsedResponse.suggestions) {
-
-        throw new Error('Invalid response structure');
-
+      // Validate result structure
+      if (!result || typeof result !== 'object') {
+        throw new Error('Invalid analysis result structure');
       }
 
+      if (!result.metrics || !result.insights || !result.suggestions) {
+        throw new Error('Incomplete analysis result');
+      }
 
-
-      // Ensure metrics have correct types
-
-      const validatedResponse = {
-
-        metrics: {
-
-          sleep: Number(parsedResponse.metrics.sleep) || 0,
-
-          exercise: Number(parsedResponse.metrics.exercise) || 0,
-
-          mood: ['good', 'neutral', 'bad'].includes(parsedResponse.metrics.mood) 
-
-            ? parsedResponse.metrics.mood 
-
-            : 'neutral',
-
-          energy: ['high', 'medium', 'low'].includes(parsedResponse.metrics.energy)
-
-            ? parsedResponse.metrics.energy
-
-            : 'medium',
-
-          symptoms: Array.isArray(parsedResponse.metrics.symptoms) 
-
-            ? parsedResponse.metrics.symptoms 
-
-            : []
-
-        },
-
-        insights: Array.isArray(parsedResponse.insights) 
-
-          ? parsedResponse.insights.slice(0, 3)
-
-          : [],
-
-        suggestions: Array.isArray(parsedResponse.suggestions)
-
-          ? parsedResponse.suggestions.slice(0, 2)
-
-          : []
-
+      // Add metadata to response
+      const response = {
+        ...result,
+        metadata: {
+          analyzedAt: new Date().toISOString(),
+          entryId: id,
+          processingTime: process.hrtime()[0],
+        }
       };
 
+      return NextResponse.json(response);
+    } catch (analysisError) {
+      console.error('Analysis error:', analysisError);
+      
+      // Check for specific error types
+      if (analysisError.message.includes('API key')) {
+        return NextResponse.json(
+          { error: 'Service configuration error' },
+          { status: 503 }
+        );
+      }
 
+      if (analysisError.message.includes('rate limit')) {
+        return NextResponse.json(
+          { error: 'Service temporarily unavailable' },
+          { status: 429 }
+        );
+      }
 
-      return NextResponse.json(validatedResponse);
-
-
-
-    } catch (parseError) {
-
-      console.error('Error parsing AI response:', parseError);
-
-      // Return a fallback response if parsing fails
-
-      return NextResponse.json({
-
-        metrics: {
-
-          sleep: 0,
-
-          exercise: 0,
-
-          mood: 'neutral',
-
-          energy: 'medium',
-
-          symptoms: []
-
+      // Generic analysis error
+      return NextResponse.json(
+        { 
+          error: 'Analysis failed',
+          details: sanitizeError(analysisError)
         },
-
-        insights: ['Unable to analyze entry'],
-
-        suggestions: ['Please try again']
-
-      });
-
+        { status: 500 }
+      );
     }
-
-
-
   } catch (error) {
-
-    console.error('API Error:', error);
-
+    console.error('Request processing error:', error);
+    
     return NextResponse.json(
-
-      { error: error.message || 'Analysis failed' },
-
+      { 
+        error: 'Internal server error',
+        details: sanitizeError(error)
+      },
       { status: 500 }
-
     );
-
   }
+}
 
+// Optional: Add HEAD method for health checks
+export async function HEAD() {
+  return new NextResponse(null, {
+    status: 200,
+    headers: {
+      'x-api-version': '1.0',
+      'x-api-status': 'healthy'
+    }
+  });
 }

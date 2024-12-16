@@ -1,24 +1,28 @@
 // src/app/analytics/page.js
 'use client';
+
 import { useState, useEffect } from 'react';
-import { 
-  LineChart, 
-  Brain, 
-  ActivitySquare, 
-  Thermometer 
-} from 'lucide-react';
+import { LineChart, Brain, ActivitySquare, Thermometer } from 'lucide-react';
 import { AnalyzeButton } from '@/components/analytics/AnalyzeButton';
 import { SleepQualityChart } from '@/components/analytics/SleepQualityChart';
 import { MoodTracker } from '@/components/analytics/MoodTracker';
 import { SymptomFrequency } from '@/components/analytics/SymptomFrequency';
+import HealthInsights from '@/components/analytics/HealthInsights';
 import { storageUtils } from '@/utils/storage';
 
 const determinePattern = (data) => {
   if (!data || data.length < 2) return 'Not enough data';
-  const trend = data[data.length - 1] - data[0];
-  if (trend > 0) return 'Improving';
-  if (trend < 0) return 'Declining';
-  return 'Stable';
+  
+  const movingAvg = data.reduce((acc, val, i, arr) => {
+    if (i < 2) return acc;
+    const slice = arr.slice(i - 2, i + 1);
+    const avg = slice.reduce((sum, num) => sum + num, 0) / 3;
+    return [...acc, avg];
+  }, []);
+  
+  const trend = movingAvg[movingAvg.length - 1] - movingAvg[0];
+  if (Math.abs(trend) < 0.5) return 'Stable';
+  return trend > 0 ? 'Improving' : 'Declining';
 };
 
 export default function Analytics() {
@@ -29,40 +33,53 @@ export default function Analytics() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    const savedEntries = storageUtils.getJournalEntries();
-    setJournalEntries(savedEntries);
-  }, []);
+    const loadEntries = () => {
+      const savedEntries = storageUtils.getJournalEntries();
+      setJournalEntries(savedEntries);
+    };
 
+    loadEntries();
+    window.addEventListener('storage', loadEntries);
+    return () => window.removeEventListener('storage', loadEntries);
+  }, []);
   const processAnalysisResults = (results) => {
     if (!results.length) return null;
 
-    const sleepData = results.map((r, i) => ({
-      date: new Date(journalEntries[i].date).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric'
-      }),
-      hours: r.metrics?.sleep || 0,
-      quality: r.metrics?.energy === 'high' ? 100 : 
-               r.metrics?.energy === 'medium' ? 75 : 50
+    const processedData = results.map((r, i) => ({
+      date: new Date(journalEntries[i].date),
+      metrics: {
+        sleep: r.metrics?.sleep || 0,
+        exercise: r.metrics?.exercise || 0,
+        mood: r.metrics?.mood || 'neutral',
+        energy: r.metrics?.energy || 'medium',
+        symptoms: r.metrics?.symptoms || []
+      },
+      insights: r.insights || [],
+      suggestions: r.suggestions || []
     })).reverse();
 
-    const moodData = results.map((r, i) => ({
-      date: new Date(journalEntries[i].date).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric'
-      }),
-      mood: r.metrics?.mood || 'neutral',
-      energy: r.metrics?.energy || 'medium'
-    })).reverse();
+    const sleepData = processedData.map(d => ({
+      date: d.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      hours: d.metrics.sleep,
+      quality: d.metrics.energy === 'high' ? 100 : 
+               d.metrics.energy === 'medium' ? 75 : 50
+    }));
 
-    const symptomsMap = results.reduce((acc, r) => {
-      (r.metrics?.symptoms || []).forEach(symptom => {
+    const moodData = processedData.map(d => ({
+      date: d.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      mood: d.metrics.mood,
+      energy: d.metrics.energy
+    }));
+
+    const symptomsMap = processedData.reduce((acc, d) => {
+      d.metrics.symptoms.forEach(symptom => {
         acc[symptom] = (acc[symptom] || 0) + 1;
       });
       return acc;
     }, {});
 
     return {
+      raw: processedData,
       sleep: {
         data: sleepData,
         averageHours: (sleepData.reduce((acc, d) => acc + d.hours, 0) / sleepData.length).toFixed(1),
@@ -87,6 +104,7 @@ export default function Analytics() {
       }
     };
   };
+
   const handleAnalyze = async () => {
     setIsAnalyzing(true);
     setError(null);
@@ -100,25 +118,19 @@ export default function Analytics() {
             const response = await fetch('/api/analyze', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ content: entry.content })
+              body: JSON.stringify({ 
+                content: entry.content,
+                id: entry.id
+              })
             });
 
+            const data = await response.json();
+            
             if (!response.ok) {
-              console.error('Failed to analyze entry:', entry.id);
-              return {
-                metrics: {
-                  sleep: 0,
-                  exercise: 0,
-                  mood: 'neutral',
-                  energy: 'medium',
-                  symptoms: []
-                },
-                insights: [],
-                suggestions: []
-              };
+              console.error(`Analysis error for entry ${entry.id}:`, data);
+              return null;
             }
 
-            const data = await response.json();
             return data;
           } catch (error) {
             console.error('Entry analysis error:', error);
@@ -128,15 +140,17 @@ export default function Analytics() {
       );
 
       const validResults = results.filter(Boolean);
-      if (validResults.length) {
-        const processedAnalysis = processAnalysisResults(validResults);
-        if (processedAnalysis) {
-          setAnalysis(processedAnalysis);
-        } else {
-          setError('Could not process analysis results');
-        }
+      
+      if (validResults.length === 0) {
+        setError('No valid analysis results obtained. Please try again.');
+        return;
+      }
+
+      const processedAnalysis = processAnalysisResults(validResults);
+      if (processedAnalysis) {
+        setAnalysis(processedAnalysis);
       } else {
-        setError('No valid analysis results obtained');
+        setError('Could not process analysis results');
       }
     } catch (error) {
       console.error('Analysis failed:', error);
@@ -145,12 +159,6 @@ export default function Analytics() {
       setIsAnalyzing(false);
     }
   };
-
-  const returnToAnalysis = () => {
-    setError(null);
-    setAnalysis(null);
-  };
-
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 py-2">
@@ -189,14 +197,19 @@ export default function Analytics() {
         </div>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 flex justify-between items-center">
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">
             <p>{error}</p>
-            <button 
-              onClick={returnToAnalysis}
-              className="text-sm underline hover:no-underline"
-            >
-              Try Again
-            </button>
+          </div>
+        )}
+
+        {analysis && !isAnalyzing && (
+          <div className="space-y-4">
+            <HealthInsights journalData={analysis.raw} />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <SleepQualityChart data={analysis.sleep} />
+              <MoodTracker data={analysis.mood} />
+              <SymptomFrequency data={analysis.symptoms} />
+            </div>
           </div>
         )}
 
@@ -214,14 +227,6 @@ export default function Analytics() {
             <div className="animate-spin h-8 w-8 border-4 border-black border-t-transparent rounded-full mx-auto mb-4"></div>
             <h2 className="text-lg font-semibold">Analyzing Your Entries</h2>
             <p className="text-gray-600 mt-2">This may take a moment...</p>
-          </div>
-        )}
-
-        {analysis && !isAnalyzing && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <SleepQualityChart data={analysis.sleep} />
-            <MoodTracker data={analysis.mood} />
-            <SymptomFrequency data={analysis.symptoms} />
           </div>
         )}
       </div>

@@ -1,107 +1,228 @@
 // src/lib/analyzeJournal.js
 import { ChatOpenAI } from "@langchain/openai";
-import { PromptTemplate } from "@langchain/core/prompts";
-import { StringOutputParser } from "@langchain/core/output_parsers";
+
+// Pattern definitions for text analysis
+const patterns = {
+  sleep: /(?:slept|sleep)\s*(?:for\s*)?(\d+(?:\.\d+)?)\s*hours?/i,
+  exercise: /(?:exercised?|worked?\s*out|ran|jogged|walked)\s*(?:for\s*)?(\d+)\s*(?:min(?:ute)?s?|hours?)/i,
+  mood: {
+    good: /(?:feel(?:ing)|felt)\s*(?:great|good|happy|excellent|amazing|fantastic|positive|energetic)/i,
+    bad: /(?:feel(?:ing)|felt)\s*(?:bad|terrible|awful|depressed|sad|angry|negative|down)/i,
+    neutral: /(?:feel(?:ing)|felt)\s*(?:okay|fine|alright|normal|neutral)/i
+  },
+  energy: {
+    high: /(?:energy|feeling)\s*(?:high|great|excellent|fantastic|full|lots)/i,
+    low: /(?:energy|feeling)\s*(?:low|tired|exhausted|drained|no|little)/i,
+    medium: /(?:energy|feeling)\s*(?:okay|fine|alright|normal|moderate)/i
+  },
+  symptoms: {
+    headache: /(?:headache|migraine|head\s*pain|head\s*hurts)/i,
+    fever: /(?:fever|temperature|hot\s*flash|chills)/i,
+    cough: /(?:cough(?:ing)?|chest\s*congestion|wheez(?:e|ing))/i,
+    fatigue: /(?:fatigue|tired(?:ness)?|exhausted|drained|no\s*energy)/i,
+    pain: /(?:pain|ache|sore(?:ness)?|hurt(?:s|ing)?)/i,
+    nausea: /(?:nausea|sick\s*to\s*stomach|queasy|vomit(?:ing)?)/i,
+    dizziness: /(?:dizzy|vertigo|light\s*headed|spinning)/i,
+    anxiety: /(?:anxious|anxiety|worried|stress(?:ed)?|nervous)/i,
+    insomnia: /(?:insomnia|can't\s*sleep|trouble\s*sleeping|restless)/i,
+    digestive: /(?:stomach|digest(?:ion|ive)|bowel|constipation|diarrhea)/i
+  }
+};
 
 export async function analyzeJournalEntry(entry) {
-  // Extract metrics from text
-  const sleepMatch = entry.match(/(\d+)\s*hours?/i);
-  const exerciseMatch = entry.match(/(\d+)-minute/i);
+  // Start with local analysis
+  const metrics = analyzeLocally(entry);
   
-  // Construct metrics object
-  const metrics = {
-    sleep: sleepMatch ? parseInt(sleepMatch[1]) : 0,
-    exercise: exerciseMatch ? parseInt(exerciseMatch[1]) : 0,
-    mood: entry.toLowerCase().includes('good') ? 'good' : 
-          entry.toLowerCase().includes('bad') ? 'bad' : 'neutral',
-    energy: entry.toLowerCase().includes('high') ? 'high' :
-            entry.toLowerCase().includes('low') ? 'low' : 'medium',
-    symptoms: []
-  };
-
-  // Extract symptoms
-  const commonSymptoms = [
-    'headache', 'fever', 'cough', 'fatigue', 'pain',
-    'nausea', 'dizziness', 'anxiety', 'stress'
-  ];
-
-  commonSymptoms.forEach(symptom => {
-    if (entry.toLowerCase().includes(symptom)) {
-      metrics.symptoms.push(symptom);
-    }
-  });
-
-  // Initialize OpenAI model with GPT-4
-  const model = new ChatOpenAI({
-    openAIApiKey: process.env.OPENAI_API_KEY,
-    modelName: "gpt-4",  // Using GPT-4 instead of GPT-3.5
-    temperature: 0.7,
-  });
-
   try {
-    // Create a detailed analysis prompt
-    const response = await model.invoke([
-      {
-        role: "system",
-        content: `You are an expert health analyst specializing in personalized health insights. 
-        Analyze health journal entries to provide specific, actionable insights and suggestions.
-        Focus on sleep patterns, exercise habits, energy levels, mood, and any mentioned symptoms.
-        Your analysis should be detailed, personalized, and directly related to the information provided.`
-      },
-      {
-        role: "user",
-        content: `Analyze this health journal entry in detail:
-        "${entry}"
-
-        Provide a thorough analysis with:
-        1. Three specific insights about their health patterns
-        2. Two actionable recommendations for improvement
-
-        Format your response exactly as this JSON:
-        {
-          "insights": [
-            "Detailed insight about their sleep patterns and quality",
-            "Specific observation about their exercise routine and its effects",
-            "Analysis of their energy levels and overall wellbeing"
-          ],
-          "suggestions": [
-            "Specific, actionable recommendation based on their sleep and exercise patterns",
-            "Practical suggestion for improving their overall health routine"
-          ]
-        }`
-      }
-    ]);
-
-    try {
-      // Parse and validate the AI response
-      const analysis = JSON.parse(response.content);
-      
-      // Verify we have valid insights and suggestions
-      if (analysis.insights?.length > 0 && analysis.suggestions?.length > 0) {
-        return {
-          metrics,
-          insights: analysis.insights,
-          suggestions: analysis.suggestions
-        };
-      }
-    } catch (parseError) {
-      console.error('Error parsing AI response:', parseError);
-    }
+    // Enhance with AI if available
+    const enhancedAnalysis = await getAIAnalysis(entry, metrics);
+    return {
+      metrics,
+      ...enhancedAnalysis
+    };
   } catch (error) {
-    console.error('Error in AI analysis:', error);
+    console.error('AI analysis failed, using local analysis:', error);
+    return {
+      metrics,
+      insights: generateLocalInsights(metrics),
+      suggestions: generateLocalSuggestions(metrics)
+    };
   }
+}
 
-  // Fallback response using actual metrics
+function analyzeLocally(entry) {
+  // Extract sleep data
+  const sleepMatch = entry.match(patterns.sleep);
+  const sleep = sleepMatch ? parseFloat(sleepMatch[1]) : 0;
+
+  // Extract exercise data
+  const exerciseMatch = entry.match(patterns.exercise);
+  const exercise = exerciseMatch ? parseInt(exerciseMatch[1]) : 0;
+
+  // Determine mood
+  let mood = 'neutral';
+  Object.entries(patterns.mood).forEach(([key, pattern]) => {
+    if (pattern.test(entry)) mood = key;
+  });
+
+  // Determine energy level
+  let energy = 'medium';
+  Object.entries(patterns.energy).forEach(([key, pattern]) => {
+    if (pattern.test(entry)) energy = key;
+  });
+
+  // Detect symptoms
+  const symptoms = Object.entries(patterns.symptoms)
+    .filter(([_, pattern]) => pattern.test(entry))
+    .map(([symptom]) => symptom);
+
   return {
-    metrics,
-    insights: [
-      `You slept for ${metrics.sleep} hours, ${metrics.sleep >= 7 ? 'which meets' : 'which is below'} recommended sleep duration`,
-      `Your exercise duration was ${metrics.exercise} minutes ${metrics.exercise >= 30 ? 'meeting daily activity goals' : 'falling short of recommended activity'}`,
-      `Your energy levels were ${metrics.energy}, and mood was ${metrics.mood}${metrics.symptoms.length > 0 ? ', with some health concerns noted' : ''}`
-    ],
-    suggestions: [
-      metrics.sleep < 7 ? "Try to increase sleep duration to at least 7 hours" : "Maintain your consistent sleep schedule",
-      metrics.exercise < 30 ? "Aim to increase daily exercise to at least 30 minutes" : "Keep up with your current exercise routine"
-    ]
+    sleep,
+    exercise,
+    mood,
+    energy,
+    symptoms
   };
 }
+async function getAIAnalysis(entry, metrics) {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error('OpenAI API key not configured');
+  }
+
+  const model = new ChatOpenAI({
+    modelName: "gpt-4",
+    temperature: 0.7,
+    timeout: 5000,
+    maxRetries: 2,
+  });
+
+  const systemPrompt = `You are an expert health analyst. Analyze the journal entry and metrics to provide specific, actionable insights and recommendations. Focus on sleep quality, exercise habits, mood patterns, energy levels, and any health concerns.`;
+
+  const userPrompt = `Analyze this health journal entry and the extracted metrics:
+
+Entry: "${entry}"
+
+Metrics detected:
+- Sleep: ${metrics.sleep} hours
+- Exercise: ${metrics.exercise} minutes
+- Mood: ${metrics.mood}
+- Energy Level: ${metrics.energy}
+- Symptoms: ${metrics.symptoms.length > 0 ? metrics.symptoms.join(', ') : 'none reported'}
+
+Provide detailed insights and suggestions. Format response as JSON with:
+{
+  "insights": [
+    "Insight about sleep patterns and their impact",
+    "Insight about exercise habits and energy levels",
+    "Insight about overall wellbeing and any health patterns"
+  ],
+  "suggestions": [
+    "Specific, actionable recommendation for improvement",
+    "Practical health management suggestion"
+  ]
+}`;
+
+  try {
+    const response = await model.invoke([
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt }
+    ]);
+
+    const parsed = JSON.parse(response.content);
+    
+    if (!parsed.insights || !parsed.suggestions || 
+        !Array.isArray(parsed.insights) || !Array.isArray(parsed.suggestions)) {
+      throw new Error('Invalid AI response format');
+    }
+
+    return parsed;
+  } catch (error) {
+    console.error('AI analysis error:', error);
+    throw new Error('AI analysis failed');
+  }
+}
+
+function generateLocalInsights(metrics) {
+  const insights = [];
+
+  // Sleep insights
+  if (metrics.sleep > 0) {
+    const sleepQuality = metrics.sleep >= 7 ? "healthy" : "below recommended";
+    insights.push(
+      `Sleep duration is ${metrics.sleep} hours (${sleepQuality}). ${
+        metrics.sleep < 7 
+          ? "Consider aiming for 7-9 hours for optimal health."
+          : "Maintain this healthy sleep pattern."
+      }`
+    );
+  }
+
+  // Exercise insights
+  if (metrics.exercise > 0) {
+    const exerciseQuality = metrics.exercise >= 30 ? "meeting" : "below";
+    insights.push(
+      `Exercise duration is ${metrics.exercise} minutes (${exerciseQuality} recommended levels). ${
+        metrics.exercise < 30
+          ? "Aim for at least 30 minutes of daily activity."
+          : "Keep up this good level of activity."
+      }`
+    );
+  }
+
+  // Mood and energy insights
+  insights.push(
+    `Overall wellbeing shows ${metrics.mood} mood with ${metrics.energy} energy levels` +
+    (metrics.symptoms.length 
+      ? `. Health concerns noted: ${metrics.symptoms.join(', ')}`
+      : " with no reported symptoms."
+    )
+  );
+
+  return insights;
+}
+
+function generateLocalSuggestions(metrics) {
+  const suggestions = [];
+
+  // Sleep suggestions
+  if (metrics.sleep < 7) {
+    suggestions.push(
+      "Establish a consistent bedtime routine and aim for 7-9 hours of sleep"
+    );
+  }
+
+  // Exercise suggestions
+  if (metrics.exercise < 30) {
+    suggestions.push(
+      "Start with short exercise sessions and gradually work up to 30 minutes daily"
+    );
+  }
+
+  // Health management suggestions
+  if (metrics.symptoms.length > 0) {
+    suggestions.push(
+      "Monitor your symptoms and consider consulting a healthcare provider if they persist"
+    );
+  }
+
+  // If we need more suggestions
+  if (suggestions.length < 2) {
+    if (metrics.energy === 'low') {
+      suggestions.push(
+        "Try to identify and address factors affecting your energy levels"
+      );
+    } else if (metrics.mood === 'bad') {
+      suggestions.push(
+        "Consider activities that boost your mood like exercise or socializing"
+      );
+    } else {
+      suggestions.push(
+        "Maintain your current healthy routines and track any changes in your wellbeing"
+      );
+    }
+  }
+
+  return suggestions;
+}
+
+export default analyzeJournalEntry;
