@@ -3,42 +3,42 @@ import { ChatOpenAI } from "@langchain/openai";
 
 // Pattern definitions for text analysis
 const patterns = {
-  sleep: /(?:slept|sleep)\s*(?:for\s*)?(\d+(?:\.\d+)?)\s*hours?/i,
-  exercise: /(?:exercised?|worked?\s*out|ran|jogged|walked)\s*(?:for\s*)?(\d+)\s*(?:min(?:ute)?s?|hours?)/i,
+  sleep: /(?:slept|sleep)\s*(?:for|about)?\s*(\d+(?:\.\d+)?)\s*hours?/i,
+  exercise: /(?:exercised|worked out|ran|jogged|walked)\s*(?:for)?\s*(\d+)\s*(?:min(?:ute)?s?|hours?)/i,
   mood: {
-    good: /(?:feel(?:ing)|felt)\s*(?:great|good|happy|excellent|amazing|fantastic|positive|energetic)/i,
-    bad: /(?:feel(?:ing)|felt)\s*(?:bad|terrible|awful|depressed|sad|angry|negative|down)/i,
-    neutral: /(?:feel(?:ing)|felt)\s*(?:okay|fine|alright|normal|neutral)/i
+    positive: /\b(?:happy|great|good|excellent|wonderful|amazing|fantastic)\b/i,
+    negative: /\b(?:sad|bad|terrible|awful|depressed|unhappy|stressed)\b/i,
+    neutral: /\b(?:okay|fine|alright|normal)\b/i
   },
   energy: {
-    high: /(?:energy|feeling)\s*(?:high|great|excellent|fantastic|full|lots)/i,
-    low: /(?:energy|feeling)\s*(?:low|tired|exhausted|drained|no|little)/i,
-    medium: /(?:energy|feeling)\s*(?:okay|fine|alright|normal|moderate)/i
+    high: /\b(?:energetic|energized|active|full of energy)\b/i,
+    low: /\b(?:tired|exhausted|fatigued|low energy)\b/i,
+    medium: /\b(?:moderate energy|decent energy)\b/i
   },
   symptoms: {
-    headache: /(?:headache|migraine|head\s*pain|head\s*hurts)/i,
-    fever: /(?:fever|temperature|hot\s*flash|chills)/i,
-    cough: /(?:cough(?:ing)?|chest\s*congestion|wheez(?:e|ing))/i,
-    fatigue: /(?:fatigue|tired(?:ness)?|exhausted|drained|no\s*energy)/i,
-    pain: /(?:pain|ache|sore(?:ness)?|hurt(?:s|ing)?)/i,
-    nausea: /(?:nausea|sick\s*to\s*stomach|queasy|vomit(?:ing)?)/i,
-    dizziness: /(?:dizzy|vertigo|light\s*headed|spinning)/i,
-    anxiety: /(?:anxious|anxiety|worried|stress(?:ed)?|nervous)/i,
-    insomnia: /(?:insomnia|can't\s*sleep|trouble\s*sleeping|restless)/i,
-    digestive: /(?:stomach|digest(?:ion|ive)|bowel|constipation|diarrhea)/i
+    headache: /\b(?:headache|migraine)\b/i,
+    nausea: /\b(?:nausea|nauseated|sick to (?:my|the) stomach)\b/i,
+    pain: /\b(?:pain|ache|sore)\b/i,
+    anxiety: /\b(?:anxiety|anxious|worried|stress)\b/i,
+    fatigue: /\b(?:fatigue|exhaustion|tired)\b/i
   }
 };
 
+// Cache for OpenAI analysis results
+const analysisCache = new Map();
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
 export async function analyzeJournalEntry(entry) {
-  // Start with local analysis
+  // Start with optimized local analysis
   const metrics = analyzeLocally(entry);
   
   try {
-    // Enhance with AI if available
+    // Use cached AI analysis if available
     const enhancedAnalysis = await getAIAnalysis(entry, metrics);
     return {
       metrics,
-      ...enhancedAnalysis
+      ...enhancedAnalysis,
+      cached: analysisCache.has(`${entry}_${JSON.stringify(metrics)}`)
     };
   } catch (error) {
     console.error('AI analysis failed, using local analysis:', error);
@@ -51,29 +51,36 @@ export async function analyzeJournalEntry(entry) {
 }
 
 function analyzeLocally(entry) {
-  // Extract sleep data
+  // Extract sleep data with improved regex
   const sleepMatch = entry.match(patterns.sleep);
-  const sleep = sleepMatch ? parseFloat(sleepMatch[1]) : 0;
+  const sleep = sleepMatch ? parseFloat(sleepMatch[1]) : null;
 
-  // Extract exercise data
+  // Extract exercise data with improved regex
   const exerciseMatch = entry.match(patterns.exercise);
-  const exercise = exerciseMatch ? parseInt(exerciseMatch[1]) : 0;
+  const exercise = exerciseMatch ? parseInt(exerciseMatch[1]) : null;
 
-  // Determine mood
+  // Determine mood with single pass
   let mood = 'neutral';
-  Object.entries(patterns.mood).forEach(([key, pattern]) => {
-    if (pattern.test(entry)) mood = key;
-  });
+  const lowerEntry = entry.toLowerCase();
+  for (const [type, pattern] of Object.entries(patterns.mood)) {
+    if (pattern.test(lowerEntry)) {
+      mood = type;
+      break;
+    }
+  }
 
-  // Determine energy level
-  let energy = 'medium';
-  Object.entries(patterns.energy).forEach(([key, pattern]) => {
-    if (pattern.test(entry)) energy = key;
-  });
+  // Determine energy level with single pass
+  let energy = null;
+  for (const [level, pattern] of Object.entries(patterns.energy)) {
+    if (pattern.test(lowerEntry)) {
+      energy = level;
+      break;
+    }
+  }
 
-  // Detect symptoms
+  // Detect symptoms efficiently
   const symptoms = Object.entries(patterns.symptoms)
-    .filter(([_, pattern]) => pattern.test(entry))
+    .filter(([_, pattern]) => pattern.test(lowerEntry))
     .map(([symptom]) => symptom);
 
   return {
@@ -81,10 +88,19 @@ function analyzeLocally(entry) {
     exercise,
     mood,
     energy,
-    symptoms
+    symptoms,
+    timestamp: Date.now()
   };
 }
+
 async function getAIAnalysis(entry, metrics) {
+  const cacheKey = `${entry}_${JSON.stringify(metrics)}`;
+  const cachedResult = analysisCache.get(cacheKey);
+  
+  if (cachedResult && Date.now() - cachedResult.timestamp < CACHE_TTL) {
+    return cachedResult.analysis;
+  }
+
   if (!process.env.OPENAI_API_KEY) {
     throw new Error('OpenAI API key not configured');
   }
@@ -96,51 +112,42 @@ async function getAIAnalysis(entry, metrics) {
     maxRetries: 2,
   });
 
-  const systemPrompt = `You are an expert health analyst. Analyze the journal entry and metrics to provide specific, actionable insights and recommendations. Focus on sleep quality, exercise habits, mood patterns, energy levels, and any health concerns.`;
-
-  const userPrompt = `Analyze this health journal entry and the extracted metrics:
-
-Entry: "${entry}"
-
-Metrics detected:
-- Sleep: ${metrics.sleep} hours
-- Exercise: ${metrics.exercise} minutes
-- Mood: ${metrics.mood}
-- Energy Level: ${metrics.energy}
-- Symptoms: ${metrics.symptoms.length > 0 ? metrics.symptoms.join(', ') : 'none reported'}
-
-Provide detailed insights and suggestions. Format response as JSON with:
-{
-  "insights": [
-    "Insight about sleep patterns and their impact",
-    "Insight about exercise habits and energy levels",
-    "Insight about overall wellbeing and any health patterns"
-  ],
-  "suggestions": [
-    "Specific, actionable recommendation for improvement",
-    "Practical health management suggestion"
-  ]
-}`;
-
   try {
     const response = await model.invoke([
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt }
+      {
+        role: "system",
+        content: `You are an expert health analyst. Analyze the journal entry and metrics to provide specific, actionable insights and recommendations. Focus on sleep quality, exercise habits, mood patterns, energy levels, and any health concerns.`
+      },
+      {
+        role: "user",
+        content: `Analyze this health journal entry and the extracted metrics:\n\nEntry: "${entry}"\n\nMetrics detected:\n${JSON.stringify(metrics, null, 2)}\n\nProvide detailed insights and suggestions in JSON format.`
+      }
     ]);
 
-    const parsed = JSON.parse(response.content);
+    const analysis = JSON.parse(response.content);
     
-    if (!parsed.insights || !parsed.suggestions || 
-        !Array.isArray(parsed.insights) || !Array.isArray(parsed.suggestions)) {
-      throw new Error('Invalid AI response format');
-    }
+    // Cache the result
+    analysisCache.set(cacheKey, {
+      analysis,
+      timestamp: Date.now()
+    });
 
-    return parsed;
+    return analysis;
   } catch (error) {
     console.error('AI analysis error:', error);
     throw new Error('AI analysis failed');
   }
 }
+
+// Cleanup cache periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of analysisCache.entries()) {
+    if (now - value.timestamp > CACHE_TTL) {
+      analysisCache.delete(key);
+    }
+  }
+}, CACHE_TTL);
 
 function generateLocalInsights(metrics) {
   const insights = [];
@@ -173,7 +180,7 @@ function generateLocalInsights(metrics) {
   insights.push(
     `Overall wellbeing shows ${metrics.mood} mood with ${metrics.energy} energy levels` +
     (metrics.symptoms.length 
-      ? `. Health concerns noted: ${metrics.symptoms.join(', ')}`
+      ? `. Health concerns noted: ${metrics.symptoms.join(', ')}` 
       : " with no reported symptoms."
     )
   );

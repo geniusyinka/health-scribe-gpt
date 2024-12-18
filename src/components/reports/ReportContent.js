@@ -1,10 +1,34 @@
 // src/components/reports/ReportContent.js
 'use client';
-import { Heart, Brain, Activity, Sun } from 'lucide-react';
+import { Heart, Brain, Activity, Sun, FileText } from 'lucide-react';
 import ReportChart from './ReportChart';
 
-const ReportContent = ({ data }) => {
-  if (!data) return null;
+const ReportContent = ({ data, loading }) => {
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="bg-white rounded-lg shadow-sm p-4 animate-pulse">
+              <div className="h-5 w-5 bg-gray-200 rounded mb-2"></div>
+              <div className="h-4 w-20 bg-gray-200 rounded"></div>
+              <div className="h-6 w-16 bg-gray-200 rounded mt-2"></div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="text-center py-12">
+        <FileText className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+        <p className="text-gray-500">No data available for the selected period</p>
+        <p className="text-sm text-gray-400 mt-2">Try selecting a different time range or add more entries</p>
+      </div>
+    );
+  }
 
   const getHealthScoreColor = (score) => {
     if (score >= 80) return 'text-green-600';
@@ -20,6 +44,12 @@ const ReportContent = ({ data }) => {
 
   return (
     <div className="space-y-4">
+      {/* Date Range */}
+      {data.dateRange && (
+        <p className="text-sm text-gray-500 text-center">
+          Showing data from {new Date(data.dateRange.start).toLocaleDateString()} to {new Date(data.dateRange.end).toLocaleDateString()}
+        </p>
+      )}
       {/* Overview Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
         <div className="bg-white rounded-lg shadow-sm p-4">
