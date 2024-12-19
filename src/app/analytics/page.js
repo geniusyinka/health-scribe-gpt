@@ -429,9 +429,9 @@ export default function Analytics() {
               <div className="bg-gradient-to-br from-sky-500 to-sky-600 rounded-xl p-6 text-white">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sky-100">Physical Activity</p>
+                    <p className="text-sky-100">Physical Activity Score</p>
                     <h3 className="text-2xl font-bold">
-                      {analysis?.metrics?.exercise?.average || '0'} min
+                      {analysis?.metrics?.exercise?.average || '0'}
                     </h3>
                     <p className="text-sm text-sky-100 mt-1">
                       Trend: {analysis?.metrics?.exercise?.trend || 'stable'}
