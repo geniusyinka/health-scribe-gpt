@@ -99,7 +99,7 @@ export default function Home() {
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center space-x-2">
               <Brain className="h-8 w-8 text-violet-600" />
-              <span className="text-xl font-bold">HealthAI</span>
+              <span className="text-xl font-bold">HealthScribeGPT</span>
             </div>
           </div>
         </div>
