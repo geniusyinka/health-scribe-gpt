@@ -4,8 +4,8 @@ const nextConfig = {
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   },
   images: {
-    domains: ['metaschool.so'],
-  }
+    domains: ['metaschool.so', 'images.unsplash.com'],
+  },
 }
 
 export default nextConfig;

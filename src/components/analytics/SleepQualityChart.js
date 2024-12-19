@@ -1,10 +1,11 @@
-// src/components/analytics/SleepQualityChart.js
 'use client';
 import { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
 export const SleepQualityChart = ({ data }) => {
   const [chartData, setChartData] = useState([]);
+
+  console.log('SleepQualityChart data:', data);
 
   useEffect(() => {
     if (data?.data && Array.isArray(data.data)) {

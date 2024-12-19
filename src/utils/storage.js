@@ -28,7 +28,12 @@ export const storageUtils = {
   addJournalEntry: (entry) => {
     try {
       const entries = storageUtils.getJournalEntries();
-      const updatedEntries = [entry, ...entries];
+      // Ensure entry has a timestamp
+      const entryWithTimestamp = {
+        ...entry,
+        timestamp: entry.timestamp || new Date().toISOString()
+      };
+      const updatedEntries = [entryWithTimestamp, ...entries];
       storageUtils.saveJournalEntries(updatedEntries);
       return updatedEntries;
     } catch (error) {
@@ -39,10 +44,21 @@ export const storageUtils = {
   // Analysis Data
   saveAnalysis: (data) => {
     try {
-      localStorage.setItem('journalAnalysis', JSON.stringify({
+      const timestamp = new Date().toISOString();
+      const analysisWithTimestamp = {
         ...data,
-        timestamp: new Date().toISOString()
-      }));
+        timestamp
+      };
+      localStorage.setItem('journalAnalysis', JSON.stringify(analysisWithTimestamp));
+
+      // Update analysis history
+      const existingHistory = JSON.parse(localStorage.getItem('journalAnalysisHistory') || '[]');
+      const updatedHistory = [
+        analysisWithTimestamp,
+        ...existingHistory.filter(item => item.timestamp !== timestamp)
+      ].slice(0, 30); // Keep last 30 analyses
+
+      localStorage.setItem('journalAnalysisHistory', JSON.stringify(updatedHistory));
       return true;
     } catch (error) {
       return handleStorageError(error, false);
@@ -51,10 +67,19 @@ export const storageUtils = {
 
   getAnalysis: () => {
     try {
-      const data = localStorage.getItem('journalAnalysis');
-      return data ? JSON.parse(data) : null;
+      const analysis = localStorage.getItem('journalAnalysis');
+      return analysis ? JSON.parse(analysis) : null;
     } catch (error) {
       return handleStorageError(error, null);
+    }
+  },
+
+  getAnalysisHistory: () => {
+    try {
+      const history = localStorage.getItem('journalAnalysisHistory');
+      return history ? JSON.parse(history) : [];
+    } catch (error) {
+      return handleStorageError(error, []);
     }
   },
 

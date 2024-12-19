@@ -1,4 +1,3 @@
-// src/components/analytics/SymptomFrequency.js
 'use client';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 

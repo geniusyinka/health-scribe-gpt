@@ -41,18 +41,17 @@ const analyzeSleepPatterns = (entries) => {
   };
 
   const sleepData = entries.map(entry => ({
-    date: new Date(entry.date).toLocaleDateString(),
-    value: entry.metrics?.sleep || 0,
-    quality: entry.metrics?.sleepQuality || 'normal'
+    date: new Date(entry.timestamp).toLocaleDateString(),
+    value: entry.metrics?.sleep?.average || 0,
+    quality: entry.metrics?.sleep?.quality || 0
   }));
 
   const avgSleep = sleepData.reduce((acc, curr) => acc + curr.value, 0) / sleepData.length;
   const consistencyScore = calculateConsistencyScore(sleepData, 8); // Target 8 hours of sleep
   
-  // Calculate quality score
-  const qualityMap = { good: 100, normal: 70, poor: 40 };
+  // Calculate average quality score
   const qualityScore = Math.round(
-    sleepData.reduce((acc, curr) => acc + (qualityMap[curr.quality] || 70), 0) / sleepData.length
+    sleepData.reduce((acc, curr) => acc + curr.quality, 0) / sleepData.length
   );
 
   const insights = [];
@@ -100,23 +99,20 @@ const analyzeSleepPatterns = (entries) => {
 const analyzeExercisePatterns = (entries) => {
   if (!entries || entries.length === 0) return {
     data: [],
-    weeklyAverage: 0,
-    mostActiveDay: "N/A",
+    average: "0",
     consistency: 0,
     insights: [],
-    intensityScore: 0
+    intensity: 0
   };
 
   const exerciseData = entries.map(entry => ({
-    date: new Date(entry.date).toLocaleDateString(),
-    value: entry.metrics?.exercise || 0,
-    intensity: entry.metrics?.exerciseIntensity || 'moderate'
+    date: new Date(entry.timestamp).toLocaleDateString(),
+    value: entry.metrics?.exercise?.average || 0,
+    intensity: entry.metrics?.exercise?.intensity || 'moderate'
   }));
 
-  const totalMinutes = exerciseData.reduce((acc, curr) => acc + curr.value, 0);
-  const avgMinutes = totalMinutes / exerciseData.length;
-  const weeklyAverage = Math.round(avgMinutes * 7);
-  const consistencyScore = calculateConsistencyScore(exerciseData, 30); // Target 30 minutes per day
+  const avgExercise = exerciseData.reduce((acc, curr) => acc + curr.value, 0) / exerciseData.length;
+  const consistencyScore = calculateConsistencyScore(exerciseData, 30); // Target 30 minutes of exercise
   
   // Calculate intensity score
   const intensityMap = { high: 100, moderate: 70, low: 40 };
@@ -124,136 +120,98 @@ const analyzeExercisePatterns = (entries) => {
     exerciseData.reduce((acc, curr) => acc + (intensityMap[curr.intensity] || 70), 0) / exerciseData.length
   );
 
-  const mostActive = exerciseData.reduce((max, curr) => 
-    curr.value > max.value ? curr : max, exerciseData[0]);
-
   const insights = [];
 
-  // Weekly average insights
-  if (weeklyAverage >= 150) {
-    insights.push("Excellent! Meeting or exceeding weekly exercise recommendations.");
-  } else if (weeklyAverage >= 100) {
-    insights.push("Good progress! Try to reach 150 minutes of exercise per week.");
-  } else if (weeklyAverage > 0) {
-    insights.push("You're making a start! Aim to gradually increase to 150 minutes per week.");
+  // Exercise duration insights
+  if (avgExercise < 15) {
+    insights.push("Critical: You're getting minimal exercise. Try to increase daily activity.");
+  } else if (avgExercise < 30) {
+    insights.push("Warning: You're below the recommended daily exercise (30 minutes).");
   } else {
-    insights.push("No exercise recorded. Try to incorporate some physical activity into your routine.");
+    insights.push("Great! You're meeting or exceeding daily exercise recommendations.");
   }
 
-  // Consistency insights
-  if (consistencyScore >= 80) {
-    insights.push("You're maintaining a very consistent exercise routine!");
-  } else if (consistencyScore >= 60) {
-    insights.push("Your exercise routine is fairly consistent. Try to maintain regular sessions.");
+  // Exercise consistency insights
+  if (consistencyScore >= 90) {
+    insights.push("Excellent exercise consistency! Keep up the routine!");
+  } else if (consistencyScore >= 70) {
+    insights.push("Good exercise consistency with some variation.");
+  } else if (consistencyScore >= 50) {
+    insights.push("Your exercise routine shows some irregularity. Try to maintain a consistent schedule.");
   } else {
-    insights.push("Your exercise pattern is irregular. Consider scheduling regular workout times.");
+    insights.push("Your exercise routine is quite irregular. Consider setting a regular workout schedule.");
   }
 
-  // Intensity insights
+  // Exercise intensity insights
   if (intensityScore >= 80) {
-    insights.push("You're maintaining good exercise intensity. Remember to include recovery periods.");
+    insights.push("You're maintaining good exercise intensity!");
   } else if (intensityScore >= 60) {
-    insights.push("Moderate intensity exercise is good. Consider including some high-intensity sessions.");
+    insights.push("Consider increasing your workout intensity for better results.");
   } else {
-    insights.push("Try to gradually increase your exercise intensity for better health benefits.");
+    insights.push("Try to incorporate more moderate to high-intensity exercises in your routine.");
   }
 
   return {
     data: exerciseData,
-    weeklyAverage,
-    mostActiveDay: mostActive.date,
+    average: Math.round(avgExercise).toString(),
     consistency: consistencyScore,
-    intensityScore,
+    intensity: intensityScore,
     insights
   };
 };
 
-const calculateHealthScore = (entries, habits) => {
+const calculateHealthScore = (entries) => {
   if (!entries || entries.length === 0) return 0;
-  if (!habits) habits = [];
 
   const weights = {
-    sleep: 0.25,
+    sleep: 0.35,
     exercise: 0.25,
-    mood: 0.20,
-    habits: 0.15,
-    nutrition: 0.15
+    mentalHealth: 0.4
   };
 
-  try {
-    // Calculate sleep score (0-100)
-    const sleepAnalysis = analyzeSleepPatterns(entries);
-    const sleepScore = sleepAnalysis ? (
-      (sleepAnalysis.consistency || 0) * 0.4 + 
-      (sleepAnalysis.qualityScore || 0) * 0.6
-    ) : 0;
+  let totalScore = 0;
+  let validMetrics = 0;
 
-    // Calculate exercise score (0-100)
-    const exerciseAnalysis = analyzeExercisePatterns(entries);
-    const exerciseScore = exerciseAnalysis ? (
-      ((exerciseAnalysis.consistency || 0) * 0.4) + 
-      ((exerciseAnalysis.intensityScore || 0) * 0.3) + 
-      (Math.min(100, ((exerciseAnalysis.weeklyAverage || 0) / 150) * 100) * 0.3)
-    ) : 0;
+  entries.forEach(entry => {
+    let entryScore = 0;
+    let entryMetrics = 0;
 
-    // Calculate mood score (0-100)
-    const moodScore = entries.reduce((acc, entry) => {
-      const moodValues = { 
-        'very positive': 100,
-        'positive': 80,
-        'neutral': 60,
-        'negative': 40,
-        'very negative': 20
-      };
-      const mood = (entry.mood || entry.metrics?.mood || 'neutral').toLowerCase();
-      return acc + (moodValues[mood] || 60);
-    }, 0) / entries.length;
+    // Sleep score
+    if (entry.metrics?.sleep?.quality) {
+      entryScore += entry.metrics.sleep.quality * weights.sleep;
+      entryMetrics++;
+    }
 
-    // Calculate habits score (0-100)
-    const habitsScore = habits.length > 0 ? habits.reduce((acc, habit) => {
-      const streakScore = Math.min(100, (habit.streak || 0) * 10);
-      const completionRate = habit.completedDays && habit.totalDays ? 
-        (habit.completedDays / Math.max(1, habit.totalDays) * 100) : 0;
-      return acc + (streakScore * 0.6 + completionRate * 0.4);
-    }, 0) / habits.length : 0;
+    // Exercise score
+    if (entry.metrics?.exercise?.average) {
+      const exerciseScore = Math.min(100, (entry.metrics.exercise.average / 30) * 100);
+      entryScore += exerciseScore * weights.exercise;
+      entryMetrics++;
+    }
 
-    // Calculate nutrition score (0-100)
-    const nutritionScore = entries.reduce((acc, entry) => {
-      const metrics = entry.metrics || {};
-      const waterIntake = metrics.waterIntake || 0;
-      const mealsLogged = metrics.mealsLogged || 0;
-      const waterScore = Math.min(100, (waterIntake / 2000) * 100);
-      const mealsScore = Math.min(100, mealsLogged * 25);
-      return acc + (waterScore * 0.5 + mealsScore * 0.5);
-    }, 0) / entries.length;
+    // Mental health score
+    if (entry.metrics?.mentalHealth?.averageScore) {
+      entryScore += entry.metrics.mentalHealth.averageScore * weights.mentalHealth;
+      entryMetrics++;
+    }
 
-    const finalScore = (
-      sleepScore * weights.sleep +
-      exerciseScore * weights.exercise +
-      moodScore * weights.mood +
-      habitsScore * weights.habits +
-      nutritionScore * weights.nutrition
-    );
-
-    return Math.round(Math.max(0, Math.min(100, finalScore)));
-  } catch (error) {
-    console.error('Error calculating health score:', error);
-    return 0;
-  }
-};
-
-const calculateAverageCalories = (meals, startDate, endDate) => {
-  if (!meals || meals.length === 0) return 0;
-
-  const filteredMeals = meals.filter(meal => {
-    const mealDate = new Date(meal.date);
-    return mealDate >= startDate && mealDate <= endDate;
+    if (entryMetrics > 0) {
+      totalScore += (entryScore / entryMetrics);
+      validMetrics++;
+    }
   });
 
-  if (filteredMeals.length === 0) return 0;
+  return validMetrics > 0 ? Math.round(totalScore / validMetrics) : 0;
+};
 
-  const totalCalories = filteredMeals.reduce((acc, meal) => acc + (meal.calories || 0), 0);
-  return Math.round(totalCalories / filteredMeals.length);
+const calculateAverageCalories = (meals) => {
+  if (!meals || meals.length === 0) return 0;
+  
+  const totalCalories = meals.reduce((sum, meal) => {
+    return sum + (meal.calories || 0);
+  }, 0);
+  
+  return Math.round(totalCalories / meals.length);
 };
 
 const downloadReport = (reportData, reportPeriod) => {
@@ -271,19 +229,18 @@ Overview:
 Health Score: ${reportData.healthScore}%
 
 Sleep Analysis:
-- Average Sleep: ${reportData.sleepAnalysis.average} hours
-- Sleep Consistency: ${reportData.sleepAnalysis.consistency}%
-- Sleep Quality: ${reportData.sleepAnalysis.qualityScore}%
+- Average Sleep: ${reportData.sleep.average} hours
+- Sleep Consistency: ${reportData.sleep.consistency}%
+- Sleep Quality: ${reportData.sleep.qualityScore}%
 Insights:
-${reportData.sleepAnalysis.insights.map(i => '- ' + i).join('\n')}
+${reportData.sleep.insights.map(i => '- ' + i).join('\n')}
 
 Exercise Analysis:
-- Weekly Average: ${reportData.exerciseAnalysis.weeklyAverage} minutes
-- Most Active Day: ${reportData.exerciseAnalysis.mostActiveDay}
-- Exercise Consistency: ${reportData.exerciseAnalysis.consistency}%
-- Exercise Intensity: ${reportData.exerciseAnalysis.intensityScore}%
+- Weekly Average: ${reportData.exercise.average} minutes
+- Exercise Consistency: ${reportData.exercise.consistency}%
+- Exercise Intensity: ${reportData.exercise.intensity}%
 Insights:
-${reportData.exerciseAnalysis.insights.map(i => '- ' + i).join('\n')}
+${reportData.exercise.insights.map(i => '- ' + i).join('\n')}
 `;
 
   const blob = new Blob([reportText], { type: 'text/plain' });
@@ -297,108 +254,204 @@ ${reportData.exerciseAnalysis.insights.map(i => '- ' + i).join('\n')}
   window.URL.revokeObjectURL(url);
 };
 
+// Helper function to ensure valid date
+const ensureValidDate = (dateStr) => {
+  if (!dateStr) return new Date();
+  const date = new Date(dateStr);
+  return isNaN(date.getTime()) ? new Date() : date;
+};
+
+// Format date consistently
+const formatDate = (date) => {
+  const validDate = ensureValidDate(date);
+  return validDate.toISOString().split('T')[0];
+};
+
 export default function Reports() {
   const [journalEntries, setJournalEntries] = useState([]);
   const [goals, setGoals] = useState([]);
   const [habits, setHabits] = useState([]);
   const [meals, setMeals] = useState([]);
-  const [reportPeriod, setReportPeriod] = useState('month');
-  const [loading, setLoading] = useState(true);
+  const [reportPeriod, setReportPeriod] = useState('week');
   const [reportData, setReportData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Get stored analysis history
+      const storedHistory = localStorage.getItem('journalAnalysisHistory');
+      let analysisHistory = [];
+      
+      // Get nutrition data
+      const nutritionData = localStorage.getItem('nutritionData');
+      let meals = [];
+      if (nutritionData) {
+        try {
+          const parsedNutrition = JSON.parse(nutritionData);
+          meals = parsedNutrition.meals || [];
+        } catch (e) {
+          console.error('Error parsing nutrition data:', e);
+        }
+      }
+
+      // Get goals and habits data
+      const goalsData = localStorage.getItem('goalsData');
+      let goals = [], habits = [];
+      if (goalsData) {
+        try {
+          const parsedGoals = JSON.parse(goalsData);
+          goals = parsedGoals.goals || [];
+          habits = parsedGoals.habits || [];
+        } catch (e) {
+          console.error('Error parsing goals data:', e);
+        }
+      }
+      
+      if (storedHistory && storedHistory !== 'undefined') {
+        try {
+          analysisHistory = JSON.parse(storedHistory);
+          // Sort by timestamp, newest first
+          analysisHistory.sort((a, b) => {
+            const dateA = new Date(a.timestamp);
+            const dateB = new Date(b.timestamp);
+            return dateB - dateA;
+          });
+        } catch (e) {
+          console.error('Error parsing analysis history:', e);
+        }
+      }
+
+      // Calculate date range
+      const endDate = new Date();
+      let startDate = new Date();
+      
+      switch (reportPeriod) {
+        case 'week':
+          startDate.setDate(endDate.getDate() - 7);
+          break;
+        case 'month':
+          startDate.setMonth(endDate.getMonth() - 1);
+          break;
+        case 'year':
+          startDate.setFullYear(endDate.getFullYear() - 1);
+          break;
+        default:
+          startDate.setDate(endDate.getDate() - 7);
+      }
+
+      const startDateStr = formatDate(startDate);
+      const endDateStr = formatDate(endDate);
+
+      // Filter entries within date range
+      const filteredEntries = analysisHistory.filter(entry => {
+        if (!entry.timestamp) return false;
+        const entryDate = formatDate(new Date(entry.timestamp));
+        return entryDate >= startDateStr && entryDate <= endDateStr;
+      });
+
+      // Filter meals within date range
+      const filteredMeals = meals.filter(meal => {
+        if (!meal.date) return false;
+        const mealDate = formatDate(new Date(meal.date));
+        return mealDate >= startDateStr && mealDate <= endDateStr;
+      });
+
+      // Calculate averages from filtered entries
+      const healthScore = calculateHealthScore(filteredEntries);
+      const sleepAnalysis = analyzeSleepPatterns(filteredEntries);
+      const exerciseAnalysis = analyzeExercisePatterns(filteredEntries);
+
+      // Calculate nutrition metrics
+      const avgCalories = calculateAverageCalories(filteredMeals);
+      
+      // Calculate goals and habits metrics
+      const activeHabits = habits.filter(habit => {
+        const lastChecked = habit.lastChecked ? new Date(habit.lastChecked) : null;
+        const today = new Date();
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+        
+        // A habit is considered active if it was checked today or yesterday
+        return lastChecked && 
+               (formatDate(lastChecked) === formatDate(today) ||
+                formatDate(lastChecked) === formatDate(yesterday));
+      }).length;
+
+      const completedGoals = goals.filter(goal => {
+        const goalDate = goal.completedAt ? formatDate(new Date(goal.completedAt)) : null;
+        return goal.completed && goalDate >= startDateStr && goalDate <= endDateStr;
+      }).length;
+
+      // Get the latest metrics
+      const latestEntry = filteredEntries[0] || {};
+      const metrics = latestEntry.metrics || {};
+
+      const report = {
+        dateRange: {
+          start: startDateStr,
+          end: endDateStr
+        },
+        healthScore,
+        overview: {
+          activeHabits,
+          completedGoals,
+          avgCalories
+        },
+        sleep: sleepAnalysis,
+        exercise: exerciseAnalysis,
+        mentalHealth: {
+          averageScore: metrics.mentalHealth?.averageScore || 0,
+          predominantMood: metrics.mentalHealth?.predominantMood || 'neutral',
+          stressLevel: metrics.mentalHealth?.stressLevel || 'moderate',
+          trend: metrics.mentalHealth?.trend || 'stable',
+          insights: metrics.mentalHealth?.insights || []
+        },
+        nutrition: {
+          meals: filteredMeals,
+          avgCalories,
+          mealCount: filteredMeals.length
+        },
+        goals: {
+          active: goals.filter(g => !g.completed).length,
+          completed: completedGoals,
+          total: goals.length
+        },
+        habits: {
+          active: activeHabits,
+          total: habits.length,
+          streaks: habits.map(h => ({
+            name: h.name,
+            streak: h.streak || 0,
+            active: h.active
+          }))
+        }
+      };
+
+      setReportData(report);
+    } catch (error) {
+      console.error('Error loading data:', error);
+      setError('Failed to load report data. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     loadData();
   }, [reportPeriod]);
 
-  const loadData = () => {
-    try {
-      // Use consistent storage keys and add error handling
-      const entries = JSON.parse(localStorage.getItem('journalEntries') || '[]');
-      const userGoals = JSON.parse(localStorage.getItem('goalsData'))?.goals || [];
-      const userHabits = JSON.parse(localStorage.getItem('goalsData'))?.habits || [];
-      const nutritionData = JSON.parse(localStorage.getItem('nutritionData'));
-      const userMeals = nutritionData?.meals || [];
-
-      setJournalEntries(entries);
-      setGoals(userGoals);
-      setHabits(userHabits);
-      setMeals(userMeals);
-      
-      if (entries.length > 0 || userGoals.length > 0 || userHabits.length > 0 || userMeals.length > 0) {
-        generateReport(entries, userGoals, userHabits, userMeals);
-      } else {
-        setLoading(false);
-        setReportData(null);
-      }
-    } catch (error) {
-      console.error('Error loading data:', error);
-      setLoading(false);
-      setReportData(null);
-    }
+  const handlePeriodChange = (period) => {
+    setReportPeriod(period);
   };
 
-  const generateReport = (entries, goals, habits, meals) => {
-    setLoading(true);
-    
-    const endDate = getConsistentDate();
-    const startDate = getConsistentDate();
-    if (reportPeriod === 'week') startDate.setDate(endDate.getDate() - 7);
-    if (reportPeriod === 'month') startDate.setDate(endDate.getDate() - 30);
-    if (reportPeriod === 'quarter') startDate.setDate(endDate.getDate() - 90);
-
-    // Format dates consistently for comparison
-    const formatDate = (date) => date.toISOString().split('T')[0];
-    const startDateStr = formatDate(startDate);
-    const endDateStr = formatDate(endDate);
-
-    const filteredEntries = entries.filter(entry => {
-      const entryDate = formatDate(new Date(entry.date));
-      return entryDate >= startDateStr && entryDate <= endDateStr;
-    });
-
-    const filteredMeals = meals.filter(meal => {
-      const mealDate = formatDate(new Date(meal.date));
-      return mealDate >= startDateStr && mealDate <= endDateStr;
-    });
-
-    const healthScore = calculateHealthScore(filteredEntries, habits);
-    const sleepAnalysis = analyzeSleepPatterns(filteredEntries);
-    const exerciseAnalysis = analyzeExercisePatterns(filteredEntries);
-
-    // Save health score to local storage with timestamp
-    try {
-      localStorage.setItem('healthScore', JSON.stringify({
-        score: healthScore,
-        timestamp: new Date().toISOString(),
-        details: {
-          sleep: sleepAnalysis.consistency,
-          exercise: exerciseAnalysis.consistency,
-          mood: filteredEntries.length > 0 ? filteredEntries[filteredEntries.length - 1].mood : 'neutral',
-          habits: habits.filter(h => h.streak > 0).length
-        }
-      }));
-    } catch (error) {
-      console.error('Error saving health score:', error);
+  const handleDownload = () => {
+    if (reportData) {
+      downloadReport(reportData, reportPeriod);
     }
-
-    const analysis = {
-      overview: {
-        totalEntries: filteredEntries.length,
-        completedGoals: goals.filter(g => g.completed).length,
-        activeHabits: habits.filter(h => h.streak > 0).length,
-        avgCalories: calculateAverageCalories(filteredMeals, startDate, endDate)
-      },
-      healthScore,
-      sleepAnalysis,
-      exerciseAnalysis,
-      dateRange: {
-        start: startDateStr,
-        end: endDateStr
-      }
-    };
-
-    setReportData(analysis);
-    setLoading(false);
   };
 
   return (
@@ -419,15 +472,15 @@ export default function Reports() {
           <div className="flex items-center gap-4">
             <select
               value={reportPeriod}
-              onChange={(e) => setReportPeriod(e.target.value)}
+              onChange={(e) => handlePeriodChange(e.target.value)}
               className="text-sm border-gray-200 rounded-lg shadow-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500 p-2"
             >
               <option value="week">Last Week</option>
               <option value="month">Last Month</option>
-              <option value="quarter">Last Quarter</option>
+              <option value="year">Last Year</option>
             </select>
             <button
-              onClick={() => downloadReport(reportData, reportPeriod)}
+              onClick={handleDownload}
               disabled={!reportData}
               className="px-4 py-2 bg-violet-600 text-white rounded-lg text-sm font-medium hover:bg-violet-700 transition-colors flex items-center gap-2 disabled:opacity-50"
             >
@@ -464,7 +517,7 @@ export default function Reports() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sky-100">Sleep Quality</p>
-                    <h3 className="text-2xl font-bold">{reportData.sleepAnalysis.consistency}%</h3>
+                    <h3 className="text-2xl font-bold">{reportData.sleep.consistency}%</h3>
                   </div>
                   <Brain className="h-8 w-8 text-sky-200" />
                 </div>
@@ -501,12 +554,12 @@ export default function Reports() {
                   <div className="flex items-center justify-between p-4 rounded-lg bg-violet-50">
                     <div>
                       <p className="text-sm text-gray-600">Average Sleep</p>
-                      <p className="text-xl font-semibold text-violet-700">{reportData.sleepAnalysis.average} hours</p>
+                      <p className="text-xl font-semibold text-violet-700">{reportData.sleep.average} hours</p>
                     </div>
                   </div>
                   <div className="space-y-2">
                     <p className="font-medium text-gray-700">Insights:</p>
-                    {reportData.sleepAnalysis.insights.map((insight, index) => (
+                    {reportData.sleep.insights.map((insight, index) => (
                       <p key={index} className="text-sm text-gray-600 flex items-center gap-2">
                         <span className="w-1.5 h-1.5 rounded-full bg-violet-500"></span>
                         {insight}
@@ -526,12 +579,12 @@ export default function Reports() {
                   <div className="flex items-center justify-between p-4 rounded-lg bg-violet-50">
                     <div>
                       <p className="text-sm text-gray-600">Weekly Average</p>
-                      <p className="text-xl font-semibold text-violet-700">{reportData.exerciseAnalysis.weeklyAverage} min</p>
+                      <p className="text-xl font-semibold text-violet-700">{reportData.exercise.average} min</p>
                     </div>
                   </div>
                   <div className="space-y-2">
                     <p className="font-medium text-gray-700">Insights:</p>
-                    {reportData.exerciseAnalysis.insights.map((insight, index) => (
+                    {reportData.exercise.insights.map((insight, index) => (
                       <p key={index} className="text-sm text-gray-600 flex items-center gap-2">
                         <span className="w-1.5 h-1.5 rounded-full bg-violet-500"></span>
                         {insight}

@@ -1,4 +1,3 @@
-// src/components/analytics/AnalyzeButton.js
 import { LineChart, RefreshCw } from 'lucide-react';
 
 export const AnalyzeButton = ({ onClick, isAnalyzing, disabled, lastUpdateTime }) => {

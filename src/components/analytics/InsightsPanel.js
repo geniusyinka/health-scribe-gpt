@@ -1,4 +1,3 @@
-// src/components/analytics/InsightsPanel.js
 'use client';
 
 export const InsightsPanel = ({ analysis }) => {

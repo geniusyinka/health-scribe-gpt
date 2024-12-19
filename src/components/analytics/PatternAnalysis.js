@@ -1,4 +1,3 @@
-// src/components/analytics/PatternAnalysis.js
 'use client';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { getConsistentNow, formatDate } from '../../utils/dateUtils';

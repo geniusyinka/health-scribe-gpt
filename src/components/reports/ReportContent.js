@@ -95,60 +95,196 @@ const ReportContent = ({ data, loading }) => {
         </div>
       </div>
 
+      {/* Goals and Habits */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {/* Goals */}
+        <div className="bg-white rounded-lg shadow-sm p-4">
+          <h3 className="text-lg font-semibold mb-4">Goals Progress</h3>
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <p className="text-sm text-gray-500">Active</p>
+                <p className="text-xl font-bold">{data.goals?.active || 0}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Completed</p>
+                <p className="text-xl font-bold">{data.goals?.completed || 0}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Total</p>
+                <p className="text-xl font-bold">{data.goals?.total || 0}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Habits */}
+        <div className="bg-white rounded-lg shadow-sm p-4">
+          <h3 className="text-lg font-semibold mb-4">Habits Overview</h3>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-sm text-gray-500">Active Habits</p>
+                <p className="text-xl font-bold">{data.habits?.active || 0}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Total Habits</p>
+                <p className="text-xl font-bold">{data.habits?.total || 0}</p>
+              </div>
+            </div>
+            {data.habits?.streaks && data.habits.streaks.length > 0 && (
+              <div>
+                <h4 className="text-sm font-medium text-gray-600 mb-2">Current Streaks</h4>
+                <div className="space-y-2">
+                  {data.habits.streaks
+                    .filter(h => h.active)
+                    .map((habit, index) => (
+                      <div key={index} className="flex items-center justify-between">
+                        <p className="text-sm text-gray-600">{habit.name}</p>
+                        <p className="text-sm font-medium">
+                          {habit.streak} {habit.streak === 1 ? 'day' : 'days'}
+                        </p>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Nutrition Overview */}
+      <div className="bg-white rounded-lg shadow-sm p-4">
+        <h3 className="text-lg font-semibold mb-4">Nutrition Overview</h3>
+        <div className="space-y-4">
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <p className="text-sm text-gray-500">Average Calories</p>
+              <p className="text-xl font-bold">{data.nutrition?.avgCalories || 0}</p>
+            </div>
+            <div>
+              <p className="text-sm text-gray-500">Meals Logged</p>
+              <p className="text-xl font-bold">{data.nutrition?.mealCount || 0}</p>
+            </div>
+            <div>
+              <p className="text-sm text-gray-500">Period</p>
+              <p className="text-xl font-bold capitalize">{data.dateRange ? `${new Date(data.dateRange.start).toLocaleDateString()} - ${new Date(data.dateRange.end).toLocaleDateString()}` : 'N/A'}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Sleep & Exercise Analysis */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {/* Sleep Analysis */}
         <div className="bg-white rounded-lg shadow-sm p-4">
-          <h3 className="text-lg font-semibold mb-3">Sleep Patterns</h3>
-          {data.sleepAnalysis.data.length > 0 ? (
-            <>
-              <ReportChart 
-                data={data.sleepAnalysis.data} 
-                dataKey="value"
-                yAxisLabel="Hours"
-                strokeColor="#2563eb"
-              />
-              <div className="mt-3 grid grid-cols-2 gap-3">
-                <div>
-                  <p className="text-sm text-gray-500">Average Sleep</p>
-                  <p className="text-lg font-semibold">{data.sleepAnalysis.average} hrs</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Consistency</p>
-                  <p className="text-lg font-semibold">{data.sleepAnalysis.consistency}%</p>
-                </div>
+          <h3 className="text-lg font-semibold mb-4">Sleep Analysis</h3>
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <p className="text-sm text-gray-500">Average</p>
+                <p className="text-xl font-bold">{data.sleep.average}h</p>
               </div>
-            </>
-          ) : (
-            <p className="text-sm text-gray-500 text-center py-10">No sleep data available</p>
-          )}
+              <div>
+                <p className="text-sm text-gray-500">Quality</p>
+                <p className="text-xl font-bold">{data.sleep.qualityScore}%</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Consistency</p>
+                <p className="text-xl font-bold">{data.sleep.consistency}%</p>
+              </div>
+            </div>
+            <div>
+              <h4 className="text-sm font-medium text-gray-600 mb-2">Sleep Trends</h4>
+              <ReportChart 
+                data={data.sleep.data} 
+                dataKey="value"
+                nameKey="date"
+                color="#10b981"
+                type="sleep"
+              />
+            </div>
+            <div>
+              <h4 className="text-sm font-medium text-gray-600 mb-2">Insights</h4>
+              <ul className="space-y-1">
+                {data.sleep.insights.map((insight, i) => (
+                  <li key={i} className="text-sm text-gray-600">{insight}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
         </div>
 
         {/* Exercise Analysis */}
         <div className="bg-white rounded-lg shadow-sm p-4">
-          <h3 className="text-lg font-semibold mb-3">Exercise Impact</h3>
-          {data.exerciseAnalysis.data.length > 0 ? (
-            <>
-              <ReportChart 
-                data={data.exerciseAnalysis.data} 
-                dataKey="value"
-                yAxisLabel="Minutes"
-                strokeColor="#16a34a"
-              />
-              <div className="mt-3 grid grid-cols-2 gap-3">
-                <div>
-                  <p className="text-sm text-gray-500">Weekly Average</p>
-                  <p className="text-lg font-semibold">{data.exerciseAnalysis.weeklyAverage} min</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Most Active Day</p>
-                  <p className="text-lg font-semibold">{data.exerciseAnalysis.mostActiveDay}</p>
-                </div>
+          <h3 className="text-lg font-semibold mb-4">Exercise Analysis</h3>
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <p className="text-sm text-gray-500">Average</p>
+                <p className="text-xl font-bold">{data.exercise.average}m</p>
               </div>
-            </>
-          ) : (
-            <p className="text-sm text-gray-500 text-center py-10">No exercise data available</p>
-          )}
+              <div>
+                <p className="text-sm text-gray-500">Intensity</p>
+                <p className="text-xl font-bold">{data.exercise.intensity}%</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Consistency</p>
+                <p className="text-xl font-bold">{data.exercise.consistency}%</p>
+              </div>
+            </div>
+            <div>
+              <h4 className="text-sm font-medium text-gray-600 mb-2">Exercise Trends</h4>
+              <ReportChart 
+                data={data.exercise.data} 
+                dataKey="value"
+                nameKey="date"
+                color="#3b82f6"
+                type="exercise"
+              />
+            </div>
+            <div>
+              <h4 className="text-sm font-medium text-gray-600 mb-2">Insights</h4>
+              <ul className="space-y-1">
+                {data.exercise.insights.map((insight, i) => (
+                  <li key={i} className="text-sm text-gray-600">{insight}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Mental Health Analysis */}
+      <div className="bg-white rounded-lg shadow-sm p-4">
+        <h3 className="text-lg font-semibold mb-4">Mental Health Analysis</h3>
+        <div className="space-y-4">
+          <div className="grid grid-cols-4 gap-4">
+            <div>
+              <p className="text-sm text-gray-500">Average Score</p>
+              <p className="text-xl font-bold">{data.mentalHealth?.averageScore || 0}%</p>
+            </div>
+            <div>
+              <p className="text-sm text-gray-500">Mood</p>
+              <p className="text-xl font-bold capitalize">{data.mentalHealth?.predominantMood || 'N/A'}</p>
+            </div>
+            <div>
+              <p className="text-sm text-gray-500">Stress Level</p>
+              <p className="text-xl font-bold capitalize">{data.mentalHealth?.stressLevel || 'N/A'}</p>
+            </div>
+            <div>
+              <p className="text-sm text-gray-500">Trend</p>
+              <p className="text-xl font-bold capitalize">{data.mentalHealth?.trend || 'stable'}</p>
+            </div>
+          </div>
+          <div>
+            <h4 className="text-sm font-medium text-gray-600 mb-2">Insights</h4>
+            <ul className="space-y-1">
+              {data.mentalHealth?.insights?.map((insight, i) => (
+                <li key={i} className="text-sm text-gray-600">{insight}</li>
+              ))}
+            </ul>
+          </div>
         </div>
       </div>
 

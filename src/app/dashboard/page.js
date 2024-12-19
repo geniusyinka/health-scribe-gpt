@@ -7,7 +7,8 @@ import {
   BarChart3,
   MessageSquare,
   PlusCircle,
-  Search
+  Search,
+  ChevronDown
 } from 'lucide-react';
 import { storageUtils } from '@/utils/storage';
 import { getConsistentNow, getConsistentISOString } from '../../utils/dateUtils';
@@ -19,31 +20,106 @@ export default function Dashboard() {
   const [analysis, setAnalysis] = useState(null);
   const [lastUpdateTime, setLastUpdateTime] = useState(null);
   const [healthScore, setHealthScore] = useState(null);
+  const [goalsData, setGoalsData] = useState({ goals: [], habits: [] });
+  const [nutritionData, setNutritionData] = useState({ meals: [], waterIntake: 0 });
+  const [showAllEntries, setShowAllEntries] = useState(false);
 
   useEffect(() => {
     const savedEntries = storageUtils.getJournalEntries();
     setJournalEntries(savedEntries);
     
-    // Get the latest analysis from storage if available
-    const savedAnalysis = localStorage.getItem('journalAnalysis');
-    if (savedAnalysis) {
-      const parsedAnalysis = JSON.parse(savedAnalysis);
-      setAnalysis(parsedAnalysis);
-      setLastUpdateTime(parsedAnalysis.timestamp);
-    }
+    const savedGoalsData = storageUtils.getGoalsData();
+    setGoalsData(savedGoalsData);
 
-    // Get the health score from storage if available
-    const savedHealthScore = localStorage.getItem('healthScore');
-    if (savedHealthScore) {
-      const parsedHealthScore = JSON.parse(savedHealthScore);
-      setHealthScore(parsedHealthScore);
-    }
+    const savedNutritionData = storageUtils.getNutritionData();
+    setNutritionData(savedNutritionData);
+    
+    const calculateHealthScore = () => {
+      const savedAnalysis = localStorage.getItem('journalAnalysis');
+      const parsedAnalysis = savedAnalysis ? JSON.parse(savedAnalysis) : null;
+      if (parsedAnalysis) {
+        setAnalysis(parsedAnalysis);
+        setLastUpdateTime(parsedAnalysis.timestamp);
+      }
 
-    // Listen for health score updates
+      const today = new Date();
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+
+      // Calculate active habits
+      const activeHabits = savedGoalsData.habits.filter(habit => {
+        const lastChecked = habit.lastChecked ? new Date(habit.lastChecked) : null;
+        return lastChecked && 
+               (lastChecked.toDateString() === today.toDateString() ||
+                lastChecked.toDateString() === yesterday.toDateString());
+      }).length;
+
+      // Get latest analysis metrics
+      const metrics = parsedAnalysis?.metrics || {};
+      
+      // Calculate weighted health score
+      const weights = {
+        sleep: 0.35,
+        exercise: 0.25,
+        mentalHealth: 0.4
+      };
+
+      let totalScore = 0;
+      let validMetrics = 0;
+
+      // Sleep score
+      if (metrics.sleep?.quality) {
+        totalScore += metrics.sleep.quality * weights.sleep;
+        validMetrics++;
+      }
+
+      // Exercise score
+      if (metrics.exercise?.average) {
+        const exerciseScore = Math.min(100, (metrics.exercise.average / 30) * 100);
+        totalScore += exerciseScore * weights.exercise;
+        validMetrics++;
+      }
+
+      // Mental health score
+      if (metrics.mentalHealth?.averageScore) {
+        totalScore += metrics.mentalHealth.averageScore * weights.mentalHealth;
+        validMetrics++;
+      }
+
+      const overallScore = validMetrics > 0 ? Math.round(totalScore / validMetrics) : 0;
+
+      const score = {
+        score: overallScore,
+        timestamp: new Date().toISOString(),
+        details: {
+          sleep: metrics.sleep?.quality || 0,
+          exercise: metrics.exercise?.average ? Math.min(100, (metrics.exercise.average / 30) * 100) : 0,
+          habits: activeHabits,
+          mood: metrics.mentalHealth?.predominantMood || 'neutral',
+          nutrition: savedNutritionData.meals.length > 0 ? 
+            Math.min(100, (savedNutritionData.meals.filter(m => 
+              new Date(m.date).toDateString() === today.toDateString()
+            ).length / 3) * 100) : 0
+        }
+      };
+
+      setHealthScore(score);
+      localStorage.setItem('healthScore', JSON.stringify(score));
+    };
+
+    calculateHealthScore();
+
     const handleStorageChange = (e) => {
-      if (e.key === 'healthScore') {
-        const newHealthScore = e.newValue ? JSON.parse(e.newValue) : null;
-        setHealthScore(newHealthScore);
+      if (e.key === 'goalsData') {
+        const newGoalsData = e.newValue ? JSON.parse(e.newValue) : { goals: [], habits: [] };
+        setGoalsData(newGoalsData);
+        calculateHealthScore(); 
+      } else if (e.key === 'nutritionData') {
+        const newNutritionData = e.newValue ? JSON.parse(e.newValue) : { meals: [], waterIntake: 0 };
+        setNutritionData(newNutritionData);
+        calculateHealthScore(); 
+      } else if (e.key === 'journalAnalysis') {
+        calculateHealthScore(); 
       }
     };
 
@@ -69,7 +145,6 @@ export default function Dashboard() {
 
   const handleAnalyzeReport = async () => {
     try {
-      // Send all entries in a single API call
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: {
@@ -88,13 +163,11 @@ export default function Dashboard() {
       const analysisData = await response.json();
       const timestamp = new Date().toISOString();
       
-      // Store the analysis data in localStorage
       localStorage.setItem('journalAnalysis', JSON.stringify({
         ...analysisData,
         timestamp
       }));
 
-      // Update the analysis state
       setAnalysis(analysisData);
       setLastUpdateTime(timestamp);
       
@@ -108,10 +181,11 @@ export default function Dashboard() {
     entry.content.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const displayedEntries = showAllEntries ? filteredEntries : filteredEntries.slice(0, 3);
+
   return (
     <div className="min-h-screen bg-gray-50">
       <main className="max-w-7xl mx-auto px-4 py-6">
-        {/* Quick Stats */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           {/* Health Score Card */}
           <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl p-6 text-white">
@@ -147,37 +221,67 @@ export default function Dashboard() {
                   <p className="text-emerald-100">Mood</p>
                   <p className="font-medium capitalize">{healthScore.details.mood}</p>
                 </div>
+                <div>
+                  <p className="text-emerald-100">Nutrition</p>
+                  <p className="font-medium">{healthScore.details.nutrition}%</p>
+                </div>
               </div>
             )}
           </div>
 
-          {/* Total Entries Card */}
+          {/* Goals Progress Card */}
           <div className="bg-gradient-to-br from-violet-500 to-violet-600 rounded-xl p-6 text-white">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-violet-100">Total Entries</p>
-                <h3 className="text-2xl font-bold">{journalEntries.length}</h3>
+                <p className="text-violet-100">Goals Progress</p>
+                <h3 className="text-2xl font-bold">
+                  {goalsData.goals.filter(g => g.completed).length}/{goalsData.goals.length}
+                </h3>
               </div>
-              <MessageSquare className="h-8 w-8 text-violet-200" />
+              <Brain className="h-8 w-8 text-violet-200" />
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+              <div>
+                <p className="text-violet-100">Active Goals</p>
+                <p className="font-medium">{goalsData.goals.filter(g => !g.completed).length}</p>
+              </div>
+              <div>
+                <p className="text-violet-100">Active Habits</p>
+                <p className="font-medium">{healthScore?.details?.habits || 0}</p>
+              </div>
             </div>
           </div>
 
-          {/* Analysis Card */}
+          {/* Nutrition Card */}
           <div className="bg-gradient-to-br from-sky-500 to-sky-600 rounded-xl p-6 text-white">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sky-100">Last Analysis</p>
-                <h3 className="text-lg font-medium">
-                  {lastUpdateTime ? new Date(lastUpdateTime).toLocaleDateString() : 'No analysis yet'}
+                <p className="text-sky-100">Nutrition</p>
+                <h3 className="text-2xl font-bold">
+                  {nutritionData.meals.length} meals
                 </h3>
               </div>
-              <Brain className="h-8 w-8 text-sky-200" />
+              <MessageSquare className="h-8 w-8 text-sky-200" />
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+              <div>
+                <p className="text-sky-100">Water Intake</p>
+                <p className="font-medium">{nutritionData.waterIntake}ml</p>
+              </div>
+              <div>
+                <p className="text-sky-100">Today's Meals</p>
+                <p className="font-medium">
+                  {nutritionData.meals.filter(m => 
+                    new Date(m.date).toDateString() === new Date().toDateString()
+                  ).length}
+                </p>
+              </div>
             </div>
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Journal Entry Section */}
+          {/* Journal Entry Form */}
           <div className="bg-white rounded-xl shadow-sm p-6">
             <div className="mb-6">
               <h2 className="text-xl font-semibold flex items-center gap-2">
@@ -247,7 +351,7 @@ export default function Dashboard() {
             <div className="overflow-y-auto max-h-[500px] pr-2 -mr-2">
               {filteredEntries.length > 0 ? (
                 <div className="space-y-4">
-                  {filteredEntries.map((entry) => (
+                  {displayedEntries.map((entry) => (
                     <div 
                       key={entry.id} 
                       className="border-l-2 border-violet-500 pl-4 py-2 hover:bg-gray-50 rounded-r-lg transition-colors"
@@ -265,6 +369,15 @@ export default function Dashboard() {
                       <p className="mt-2 text-gray-700">{entry.content}</p>
                     </div>
                   ))}
+                  {filteredEntries.length > 3 && (
+                    <button
+                      onClick={() => setShowAllEntries(!showAllEntries)}
+                      className="w-full py-2 px-4 text-sm text-violet-600 hover:bg-violet-50 rounded-lg transition-colors flex items-center justify-center gap-2"
+                    >
+                      {showAllEntries ? 'Show Less' : 'Show More'}
+                      <ChevronDown className={`h-4 w-4 transition-transform ${showAllEntries ? 'transform rotate-180' : ''}`} />
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="text-center py-8">

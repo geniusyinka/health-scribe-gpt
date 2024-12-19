@@ -1,33 +1,45 @@
-// src/components/analytics/HealthInsights.js
 'use client';
-
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
-const HealthInsights = ({ journalData }) => {
-  const [chartData, setChartData] = useState([]);
+const HealthInsights = ({ chartData }) => {
+  if (!chartData || chartData.length === 0) {
+    return (
+      <div className="bg-white p-6 rounded-lg shadow-sm">
+        <h3 className="text-lg font-semibold mb-4">Health Trends</h3>
+        <div className="h-[300px] flex items-center justify-center">
+          <p className="text-gray-500">No health data available</p>
+        </div>
+      </div>
+    );
+  }
 
-  useEffect(() => {
-    if (journalData && journalData.length > 0) {
-      const processedData = journalData
-        .slice(-7) // Get last 7 entries
-        .map(entry => ({
-          date: new Date(entry.date).toLocaleDateString('en-US', { 
-            month: 'short', 
-            day: 'numeric' 
-          }),
-          sleep: Number(entry.metrics.sleep) || 0,
-          exercise: Number(entry.metrics.exercise) || 0,
-          mood: entry.metrics.mood,
-          energy: entry.metrics.energy
-        }))
-        .reverse();
-      setChartData(processedData);
+  const CustomTooltip = ({ active, payload, label }) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-sm">
+          <p className="text-sm font-medium text-gray-600 mb-2">{label}</p>
+          {payload.map((item, index) => (
+            <p key={index} className="text-sm">
+              <span className="font-medium" style={{ color: item.color }}>
+                {item.name}:
+              </span>{' '}
+              {item.name === 'Sleep' 
+                ? `${item.value} hrs`
+                : item.name === 'Exercise'
+                  ? `${item.value} min`
+                  : `${item.value}%`
+              }
+            </p>
+          ))}
+        </div>
+      );
     }
-  }, [journalData]);
+    return null;
+  };
 
   return (
-    <div className="bg-white p-4 rounded-lg shadow-sm">
+    <div className="bg-white p-6 rounded-lg shadow-sm">
       <h3 className="text-lg font-semibold mb-4">Health Trends</h3>
       <div className="h-[300px]">
         <ResponsiveContainer width="100%" height="100%">
@@ -42,66 +54,71 @@ const HealthInsights = ({ journalData }) => {
               tickMargin={8}
             />
             <YAxis 
-              yAxisId="sleep"
+              yAxisId="hours"
               tick={{ fontSize: 12 }}
               tickMargin={8}
               domain={[0, 12]}
               label={{ 
-                value: 'Sleep (hrs)', 
+                value: 'Hours / Minutes', 
                 angle: -90, 
                 position: 'insideLeft',
-                style: { fontSize: 12 }
+                style: { fontSize: '12px' }
               }}
             />
             <YAxis 
-              yAxisId="exercise"
+              yAxisId="score"
               orientation="right"
+              domain={[0, 100]}
               tick={{ fontSize: 12 }}
               tickMargin={8}
-              domain={[0, 120]}
               label={{ 
-                value: 'Exercise (min)', 
+                value: 'Score %', 
                 angle: 90, 
                 position: 'insideRight',
-                style: { fontSize: 12 }
+                style: { fontSize: '12px' }
               }}
             />
-            <Tooltip 
-              contentStyle={{ 
-                fontSize: 12,
-                backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                border: '1px solid #f0f0f0',
-                borderRadius: '4px',
-                padding: '8px'
-              }}
-            />
-            <Legend 
-              verticalAlign="top" 
-              height={36}
-              wrapperStyle={{
-                paddingTop: '8px',
-                fontSize: '12px'
-              }}
-            />
-            <Line
-              yAxisId="sleep"
-              type="monotone"
-              dataKey="sleep"
-              stroke="#2563eb"
-              strokeWidth={2}
+            <Tooltip content={<CustomTooltip />} />
+            <Legend />
+            <Line 
+              yAxisId="hours"
+              type="monotone" 
+              dataKey="hours" 
               name="Sleep"
-              dot={{ r: 4 }}
-              activeDot={{ r: 6 }}
-            />
-            <Line
-              yAxisId="exercise"
-              type="monotone"
-              dataKey="exercise"
-              stroke="#dc2626"
+              stroke="#10b981" 
               strokeWidth={2}
+              dot={{ r: 4, strokeWidth: 2 }}
+              activeDot={{ r: 6, strokeWidth: 2 }}
+            />
+            <Line 
+              yAxisId="score"
+              type="monotone" 
+              dataKey="quality" 
+              name="Sleep Quality"
+              stroke="#8b5cf6" 
+              strokeWidth={2}
+              dot={{ r: 4, strokeWidth: 2 }}
+              activeDot={{ r: 6, strokeWidth: 2 }}
+            />
+            <Line 
+              yAxisId="score"
+              type="monotone" 
+              dataKey="mentalScore" 
+              name="Mental Health"
+              stroke="#f59e0b" 
+              strokeWidth={2}
+              dot={{ r: 4, strokeWidth: 2 }}
+              activeDot={{ r: 6, strokeWidth: 2 }}
+            />
+            <Line 
+              yAxisId="hours"
+              type="monotone" 
+              dataKey="exercise" 
               name="Exercise"
-              dot={{ r: 4 }}
-              activeDot={{ r: 6 }}
+              stroke="#3b82f6" 
+              strokeWidth={2}
+              dot={{ r: 4, strokeWidth: 2 }}
+              activeDot={{ r: 6, strokeWidth: 2 }}
             />
           </LineChart>
         </ResponsiveContainer>
